@@ -1,0 +1,9 @@
+Revision history for Perl extension PDL::Planet
+0.01  01/21/2003
+	- original version
+
+0.04  03/03/2005
+        - Updated build procedure to work on AMD-64.
+        Must export CPPFLAGS='-fPIC' before building.
+0.05  10/18/2005
+        - Fixed small bug in AMD 64 detection for multi-threaded perl.

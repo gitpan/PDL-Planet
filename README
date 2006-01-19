@@ -1,0 +1,35 @@
+PDL::Planet
+
+This is a package for manipulation of images, especially
+pictures of Earth and satellites.
+
+Image code taken from Xplanet by Hari Nair:
+
+http://xplanet.sourceforge.net/
+
+PREREQUISITES:
+
+perl 5.6
+PDL 2.4.1cvs or more recent
+
+INSTALLATION:
+ 
+Installation should be the normal:
+ 
+perl Makefile.PL
+make
+make test
+ 
+(as root)
+make install
+ 
+Best of luck!
+ 
+Doug Hunt
+dhunt@ucar.edu
+Software Engineer III
+UCAR - GPS/MET
+
+
+
+

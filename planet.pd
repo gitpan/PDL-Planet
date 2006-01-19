@@ -1,0 +1,610 @@
+$VERSION = '0.05';
+
+pp_addpm({At => Top}, <<'EOD');
+
+use Image::Size;  
+
+=head2 new
+
+=for ref
+
+Create a new PDL::Planet object.
+
+=for usage
+
+Arguments:
+  none.
+
+Returns:
+ PDL::Planet object, used to call object methods
+
+=for example
+
+  my $pl = PDL::Planet->new;
+
+=cut
+
+sub new {
+
+  my $type = shift;
+  my $init = shift || '';
+
+  my $self;
+  if ($init) {
+    for my $key (keys %$init) {
+      $self->{$key} = $init->{$key};
+    }
+    $self->{IMG}  = $init->{IMG}->copy;
+    setmap (@{$self->{SIZE}});
+  } else {
+    $self = {};
+  }
+
+  return bless $self, $type;  
+
+}
+
+#--------------------------------------------------------------------------
+
+=head2 close
+
+=for ref
+
+Get rid of a PDL::Planet object
+
+=for usage
+
+Arguments:
+  none.
+
+Returns:
+  none.
+
+=for example
+
+  $pl->close;
+
+=cut
+
+sub close {
+
+  my $self = shift;
+	
+  undef $self->{IMG};
+  undef $self;
+
+}
+
+#--------------------------------------------------------------------------
+
+=head2 read
+
+=for ref
+
+Read in an image
+
+=for usage
+
+Arguments:
+
+  File name to read in.  
+
+Supports GIF, JPEG, PNG, BMP (limited support), TIFF, PNM.
+
+Returns:
+  PDL::Planet object.
+
+=for example
+
+  my $pl = PDL::Planet->new->read('planet.jpg');
+
+=cut
+
+sub read {
+
+  my $self   = shift;
+  my $infile = shift;
+	 
+  my ($x, $y) = Image::Size::imgsize($infile);
+  my $outpdl  = zeroes(byte,3,$x,$y);
+  PDL::Planet::read_image ($outpdl, $infile);
+  $self->{SIZE} = [$x, $y];	    
+  setmap (@{$self->{SIZE}});
+  $self->{IMG}  = $outpdl;
+
+  return $self;
+
+}
+
+#--------------------------------------------------------------------------
+
+=head2 create
+
+=for ref
+
+Create an image from an external PDL.
+
+=for usage
+
+Arguments:
+
+  PDL to use to create image (planet) object.
+
+Returns:
+  PDL::Planet object.
+
+=for example
+
+  my $pl = PDL::Planet->new->create($rgbpdl);
+
+=cut
+
+sub create {
+
+  my $self = shift;
+  my $pdl  = shift;
+	 
+  $self->{SIZE} = [($pdl->dims)[1,2]];
+  setmap (@{$self->{SIZE}});
+  $self->{IMG}  = $pdl;
+
+  return $self;
+
+}
+
+
+#--------------------------------------------------------------------------
+
+=head2 write
+
+=for ref
+
+Write an image to a file.
+
+=for usage
+
+Arguments:
+
+  File name to write out.  The suffix specified tells the
+  format.  
+
+Supports GIF, JPEG, PNG, BMP (limited support), TIFF, PNM.
+
+Returns:
+  PDL::Planet object.
+
+=for example
+
+  my $pl = PDL::Planet->new->read('planet.jpg')->write('planet.gif');
+
+=cut
+
+sub write {
+
+  my $self   = shift;
+  my $outfile = shift;
+
+  PDL::Planet::write_image ($self->{IMG}, $outfile);
+
+  return $self;
+
+}
+
+#--------------------------------------------------------------------------
+
+=head2 resize
+
+=for ref
+
+Resize an image.
+
+=for usage
+
+Arguments:
+
+  X size, Y size
+
+Returns:
+  PDL::Planet object.
+
+=for example
+
+  my $pl = PDL::Planet->new->read('planet.jpg')->resize(400,400)->write('planet.gif');
+
+=cut
+
+sub resize {
+
+  my $self  = shift;
+  my $xsize = shift;
+  my $ysize = shift;
+
+  my $resize = zeroes(byte,3, $xsize, $ysize);
+  PDL::Planet::resize_image ($self->{IMG}, $resize);
+  $self->{IMG}  = $resize;
+  $self->{SIZE} = [$xsize, $ysize];
+  setmap (@{$self->{SIZE}});
+
+  return $self;
+
+}
+
+#--------------------------------------------------------------------------
+
+=head2 crop
+
+=for ref
+
+Crop an image.
+
+=for usage
+
+Arguments:
+
+  X size, Y size
+  X offset, Y offset (lower left corner of crop)
+
+Returns:
+  PDL::Planet object.
+
+=for example
+
+  my $pl = PDL::Planet->new->read('planet.jpg')->crop(500,500,250,0)->write('planet.gif');
+
+=cut
+
+sub crop {
+
+  my $self  = shift;
+  my $xsize = shift;
+  my $ysize = shift;
+  my $xoff  = shift;
+  my $yoff  = shift;
+
+  my $crop = zeroes(byte,3, $xsize, $ysize);
+  PDL::Planet::crop_image ($self->{IMG}, $xoff, $yoff, $crop);
+  $self->{IMG}  = $crop;
+  $self->{SIZE} = [$xsize, $ysize];
+
+  return $self;
+
+}
+
+#--------------------------------------------------------------------------
+
+=head2 transform
+
+=for ref
+
+Perform a transformation on an image.  Currently supported transformations:
+ -- Orthographic
+
+=for usage
+
+Arguments:
+
+  Options list:
+    TYPE   => 'Orthographic'
+    CENTER => [lat, lon]  # center of orthographic projection    
+    SIZE   => [maxx, maxy]       # Size in pixels of resultant projection (defaults to input size)
+    SHRINK => shrink_factor, 0-1 # Controls how much the Earth fills the window
+
+Returns:
+  PDL::Planet object with transformation done.
+
+=for example
+
+  my $pl = PDL::Planet->new->read('planet.jpg')->transform(TYPE => Orthographic, CENTER => [40,-105])->write('planet.gif');
+
+=cut
+
+sub transform {
+
+  my $self  = shift;
+  my %opt   = @_;
+
+  my $xform;	     
+  if ($opt{TYPE} =~ /Ortho/) {
+
+    my $lat = defined($opt{CENTER}[0]) ? $opt{CENTER}[0] : 0;
+    my $lon = defined($opt{CENTER}[1]) ? $opt{CENTER}[1] : 0;
+    setshrink ($opt{SHRINK}) if (exists($opt{SHRINK}));
+    setcenter ($lat, $lon);
+    my ($x, $y) = (exists($opt{SIZE})) ? @{$opt{SIZE}} : @{$self->{SIZE}};
+    $xform = zeroes(byte,3,$x,$y);
+    PDL::Planet::xform_orthographic ($self->{IMG}, $xform);
+    $self->{TRANSFORM} = 'Orthographic';
+    $self->{CENTER}    = [$lat, $lon];
+    $self->{SIZE}      = [$x, $y];
+
+  } else {
+
+    die "Transform type: $opt{TYPE} not supported";
+
+  }
+
+  $self->{IMG} = $xform;
+  return $self;
+
+}
+
+#--------------------------------------------------------------------------
+
+=head2 llh2xy
+
+=for ref
+
+Convert lat, lon, height triples to X and Y coordinates according
+to the transform used currently in the object.
+
+=for usage
+
+Arguments:
+
+  $lat -- latitude, deg N
+  $lon -- longitude, deg E
+  $height -- height, m
+
+Returns:
+  $x
+  $y
+
+=for example
+
+  my $pl = PDL::Planet->new->read('planet.jpg')->transform(TYPE => Orthographic, CENTER => [40,-105]);
+  my ($lat, $lon, $height) = ...
+  my ($x, $y) = $pl->llh2xy($lat, $lon, $height);
+
+=cut
+
+sub llh2xy {
+
+  my $self   = shift;
+  my $lat    = shift;
+  my $lon    = shift;
+  my $height = shift;
+
+  my ($x, $y);
+  die "No transformation defined, call \'transform\' first!" unless (exists($self->{TRANSFORM}));
+  if ($self->{TRANSFORM} eq 'Orthographic') {
+    setcenter (@{$self->{CENTER}});
+    setmap    (@{$self->{SIZE}});
+    ($x, $y) = PDL::Planet::orthographic_llh2xy ($lat, $lon, $height);
+  } else {
+    die "Transform $self->{TRANSFORM} not supported!";
+  }
+  return ($x, $y);
+
+}
+
+
+#--------------------------------------------------------------------------
+
+=head2 paste
+
+=for ref
+
+Paste small images into the current image.
+
+=for usage
+
+Arguments:
+
+  $image -- Small image to paste into current image (a PDL::Planet object)
+  $x     -- PDL of X coordinates of large image to paste the smaller image to
+  $y     -- PDL of Y coordinates of large image to paste the smaller image to
+
+Returns:
+  PDL::Planet object with pasting done.
+
+=for example
+
+  my $planet  = PDL::Planet->new->read('planet.jpg')->transform(TYPE => Orthographic, CENTER => [40,-105]);
+  my $glyph   = PDL::Planet->new->read('satellite.gif');
+  my ($lat, $lon, $height) = ...
+  my ($x, $y) = $planet->llh2xy($lat, $lon, $height);
+  $planet->paste ($glyph, $x, $y)->write('sats.jpg');
+
+Note:  The pasted image ($glyph) may have a white (255,255,255) background.  This
+will be blended with the image and not appear in the final result.
+
+=cut
+
+sub paste {
+
+  my $self  = shift;
+  my $image = shift; # image to paste
+  my $x     = shift;
+  my $y     = shift;
+
+  my $xs = $image->{SIZE}[0];
+  my $ys = $image->{SIZE}[1];
+  my $xc = $x - ($xs/2);  # center of pastable image
+  # note correction of $y:  input Y assumes (0,0) at lower left, must convert to upper left
+  my $yc = ($self->{SIZE}[1] - $y) - ($ys/2);  # center of pastable image
+
+  # Heavy magic.  See the man page for 'range' and take several aspirin!
+  # Basically, we get a series of slices from the main image which correspond to
+  # the places where the smaller image will be pasted ($slices).
+  # Then we use a mask to find out where the white (255,255,255) background is
+  # and blend this with the image slices.  Finally, we paste the blend of background
+  # and small images into the big image in the correct places.
+  my $glyph  = $image->{IMG}->mv(0,2);
+  my $slices = $self->{IMG}->mv(0,2)->range(cat($xc, $yc)->mv(0,1),pdl($xs, $ys), 't')->mv(0,3);
+  my $mask   = ($glyph == 255);
+  my $blend  = ($mask * $slices) | ($glyph * !$mask);
+  $self->{IMG}->mv(0,2)->range(cat($xc, $yc)->mv(0,1),pdl($xs, $ys), 't')->mv(0,3) .= $blend;
+
+  return $self;
+
+}
+
+#--------------------------------------------------------------------------
+
+=head2 rgb
+
+=for ref
+
+Return a (3, X, Y) PDL of the image with (0,0) in the lower left.
+The normal orientation of the image is (3,X,Y) with (0,0) in the upper left, 
+but this returns the Y axis flipped because plplot likes it this way.
+
+=for usage
+
+Arguments:
+
+  PDL::Planet object.
+
+Returns:
+  RGB PDL image.
+
+=for example
+
+  my $pl = PDL::Planet->new->read('planet.jpg')->rgb;
+
+=cut
+
+sub rgb {
+
+  my $self  = shift;
+
+  return $self->{IMG}; # ->slice(":,:,-1:0");
+
+}
+
+
+EOD
+
+#---------------------------------------------------------------
+## PP section
+#---------------------------------------------------------------
+
+
+pp_def	('read_image',
+	Pars => '[o]image(3,x,y);',
+        OtherPars => 'char *infile',
+	GenericTypes => [B],
+	Code => 'int xsize, ysize;
+                 unsigned char *ptr = NULL;
+                 char *infile = $COMP(infile);
+                 read_image(infile, &xsize, &ysize, $P(image));',
+	Doc  => <<'EOD');
+Reads in an image in one of several formats (GIF, JPEG, PNG, PNM, TIFF)
+and outputs a PDL of 3 x width x height.  The trouble is, you must
+pass the correctly sized PDL in!  Try using Image::Size, say.
+EOD
+
+#-----------------------------------------------------------------------------------
+
+pp_def	('write_image',
+	Pars => 'image(3,x,y);',
+        OtherPars => 'char *outfile',
+	GenericTypes => [B],
+	Code => 'int xsize = $SIZE(x);
+		 int ysize = $SIZE(y);
+                 char *outfile = $COMP(outfile);
+		 set_quality(100);  /* for jpegs, use max quality */
+                 write_image(outfile, xsize, ysize, $P(image));',
+	Doc  => <<'EOD');
+Writes an image in one of several formats (GIF, JPEG, PNG, PNM, TIFF, BMP)
+and outputs a PDL of 3 x width x height.  File type to write is 
+determined by the extension: .gif .jpeg .bmp .png .pbm .pgm .ppm .tiff
+EOD
+
+#-----------------------------------------------------------------------------------
+pp_def	('resize_image',
+	Pars => 'image(3,x,y); [o]oimage(3,ox,oy)',
+	GenericTypes => [B],
+	Code => 'int xsize = $SIZE(x);
+		 int ysize = $SIZE(y);
+		 int oxsize = $SIZE(ox);
+		 int oysize = $SIZE(oy);
+                 resize_image($P(image), xsize, ysize, $P(oimage), oxsize, oysize, 0);',
+	Doc  => <<'EOD');
+Resize an image.  Input is a PDL with the current image.  Output is 
+a new PDL with the scaled image.  Generally called thus:
+my $image = ...
+my $oimage = zeroes(byte, 3, $ox, $oy);
+resize_image($image, $oimage);
+EOD
+
+#-----------------------------------------------------------------------------------
+pp_def	('crop_image',
+	Pars => 'image(3,x,y); int offsetx(); int offsety(); [o]oimage(3,ox,oy)',
+	GenericTypes => [B],
+	Code => 'int xsize = $SIZE(x);
+		 int ysize = $SIZE(y);
+		 int oxsize = $SIZE(ox);
+		 int oysize = $SIZE(oy);
+                 crop_image($P(image), xsize, ysize, $P(oimage), $offsetx(), $offsety(), oxsize, oysize);',
+	Doc  => <<'EOD');
+Crop an image.  Generally called thus:
+my $image = ...
+my $oimage = zeroes(byte, 3, $ox, $oy);
+crop_image($image, $offsetx, $offsety, $oimage);
+EOD
+
+#-----------------------------------------------------------------------------------
+
+pp_def	('orthographic_llh2xy',
+	Pars => 'lat(); lon(); height(); int [o]xi(); int [o]yi();',
+	GenericTypes => [D,L],
+	Code => 'double lat = $lat();
+                 double lon = $lon();
+                 double height = $height();
+                 orthographic_llh2xy (lat, lon, height, $P(xi), $P(yi));',
+	Doc  => <<'EOD');
+Transform lat/lon/height to X/Y coords.
+EOD
+
+#-----------------------------------------------------------------------------------
+
+pp_def	('setmap',
+	Pars => 'maxx(); maxy()',
+	GenericTypes => [L],
+	Code => 'setmap ($maxx(),$maxy());',
+	Doc  => <<'EOD');
+Set map image size
+EOD
+
+#-----------------------------------------------------------------------------------
+
+pp_def	('setcenter',
+	Pars => 'lat(); lon()',
+	GenericTypes => [D],
+	Code => 'setcenter ($lat(),$lon());',
+	Doc  => <<'EOD');
+Set map projection center
+EOD
+
+#-----------------------------------------------------------------------------------
+
+pp_def	('setshrink',
+	Pars => 'shrink()',
+	GenericTypes => [D],
+	Code => 'setshrink ($shrink());',
+	Doc  => <<'EOD');
+Set shrink factor when projecting Earth.  0 - 1, 1 means Earth takes
+up the whole width of the window.  Zero means that the Earth will be a point
+in the center of the plot, surrounded by space.
+EOD
+
+#-----------------------------------------------------------------------------------
+
+pp_def	('xform_orthographic',
+	Pars => 'image(3,x,y); [o]imageout(3,xo,yo);',
+	GenericTypes => [B],
+	Code => 'xform_orthographic1 ($P(image), $SIZE(xo), $SIZE(yo), $P(imageout));',
+	Doc  => <<'EOD');
+Transforms an input PDL in rectangular coords to an orthographic projection.
+EOD
+
+pp_done();
+
+
+
+
+
+
+
+
