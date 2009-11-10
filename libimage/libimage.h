@@ -49,6 +49,9 @@ set_quality(int q);
 extern int
 write_image(const char *filename, int width, int height, unsigned char *rgb);
 
+extern int
+write_png_mem(char **img_ptr, size_t *img_size, int width, int height, unsigned char *rgb);
+
 #ifdef __cplusplus
 }
 #endif

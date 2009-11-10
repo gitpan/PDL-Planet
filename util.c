@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include "spa.h"
 
 /**----------------------------------------------------------------------
  * @name       mag
@@ -39,6 +40,9 @@ struct mapdefaults {
   int    miny;       /* corresponds to maxlat */
   int    maxy;
   double shrink;     /* factor to shrink the Earth to show more space around , 0-1) */
+  double sunlat;     /* Location of sun for computing terminator (deg) */
+  double sunlon;     /* Location of sun for computing terminator (deg) */
+  int    night;      /* Show night side if set to 1 */
 };
 
 static struct mapdefaults mapset = {
@@ -55,6 +59,9 @@ static struct mapdefaults mapset = {
      0,
    999,
    1.0,
+  40.0,
+-105.0,
+ 0,
 };
 
 static double pi       = 3.1415926535897932384626;
@@ -97,6 +104,59 @@ int setcenter (double lat, double lon) {
   norm(cxyz, ncxyz);  
 
 }
+
+/**----------------------------------------------------------------------
+ * @name       findsunpos
+ *
+ * Compute the sun's subpoint given the time.
+ *
+ * @parameter
+ * @ input:      
+ * @   tjulian -- Julian time for sun direction computation
+ * @ output:
+ * @   lat -- degrees North, -90  to 90
+ * @   lon -- degrees East,  -180 to 180
+ *-----------------------------------------------------------------------*/
+int findsunpos (double tjulian, double *lat, double *lon) {
+
+  spa_data spa;
+  double latwork, lonwork;
+  double r2d  = 180.0/pi;
+  memset(&spa, 0, sizeof(spa));
+
+  // printf ("tjulian = %f\n", tjulian);
+  // compute the Sun's inertial lat/lon and hour angle at the input Julian time
+  spa.jd = tjulian;
+  spa_calculate(&spa);
+  // printf ("after sunpos, lat = %f, lon = %f, GAST angle = %f\n", spa.delta, spa.alpha, spa.nu);
+  *lon = spa.alpha - spa.nu;
+  *lat = spa.delta;
+
+  // adjust to -180 to 180
+  if (*lon >  180) *lon -= 360;
+  if (*lon < -180) *lon += 360;
+
+}
+
+/**----------------------------------------------------------------------
+ * @name       setsunpos
+ *
+ * Set sun position for terminator computation (also turns drawing
+ * of terminator on).
+ *
+ * @parameter
+ * @ input:      
+ * @ lat -- degrees North, -90  to 90
+ * @ lon -- degrees East,  -180 to 180
+ *-----------------------------------------------------------------------*/
+int setsunpos (double lat, double lon) {
+
+  mapset.sunlat = lat;
+  mapset.sunlon = lon;
+  mapset.night  = 1;  // show night side 
+
+}
+
 
 /**----------------------------------------------------------------------
  * @name       setshrink
@@ -180,68 +240,70 @@ int orthographic_llh2xy (double lat, double lon, double height, int *xp, int *yp
 
 }
 
-
-/**----------------------------------------------------------------------
- * @name       xform_orthographic
- *
- * Convert a linear projection map into an orthographic projection
- * map of the same size.
- *
- * @parameter
- * @ input:    image -- pointer to input image
- * @           xsize -- x dimension of image
- * @           ysize -- y dimension of image
- * @ output:   
- * @           imageout -- pointer to output image (allocated by caller)
- *-----------------------------------------------------------------------*/
-int xform_orthographic (unsigned char *image, int xsize, int ysize, unsigned char *imageout) {
-  int i, j;
-  int xi, yi, idx;
-  double lat, lon;
-  unsigned char this[3];
-
-  setmap (xsize-1, ysize-1);
-  for (j=0;j<ysize;j++) {
-    for (i=0;i<xsize;i++) {	
-      
-      lat =  ((((double)j/(double)ysize) *-180.0) + 90);
-      lon =  ((((double)i/(double)xsize) * 360.0) - 180);
-      
-      orthographic_llh2xy (lat, lon, 0.0, &xi, &yi);
-      
-      // bounds checks
-      if (xi < 0) continue;
-      if (yi < 0) continue;
-      if (xi > xsize-1) continue;
-      if (yi > ysize-1) continue;
-
-      this[0] = image[3*xsize*j + 3*i    ];
-      this[1] = image[3*xsize*j + 3*i + 1];
-      this[2] = image[3*xsize*j + 3*i + 2];
-      
-      idx = 3*xsize*yi + 3*xi;
-      imageout[idx  ] = this[0];
-      imageout[idx+1] = this[1];
-      imageout[idx+2] = this[2];
-
-      idx = 3*xsize*yi + 3*(xi+1);
-      imageout[idx  ] = this[0];
-      imageout[idx+1] = this[1];
-      imageout[idx+2] = this[2];
-
-      idx = 3*xsize*(yi+1) + 3*xi;
-      imageout[idx  ] = this[0];
-      imageout[idx+1] = this[1];
-      imageout[idx+2] = this[2];
-
-      idx = 3*xsize*(yi+1) + 3*(xi+1);
-      imageout[idx  ] = this[0];
-      imageout[idx+1] = this[1];
-      imageout[idx+2] = this[2];
-
-    }
-  }
-}
+/// This routine is no longer used but is kept for reference.  See xform_orthographic1
+/// below.  D. Hunt 4/19/2006
+/// /**----------------------------------------------------------------------
+///  * @name       xform_orthographic
+///  *
+///  * Convert a linear projection map into an orthographic projection
+///  * map of the same size.
+///  *
+///  * @parameter
+///  * @ input:    image -- pointer to input image
+///  * @           xsize -- x dimension of image
+///  * @           ysize -- y dimension of image
+///  * @ output:   
+///  * @           imageout -- pointer to output image (allocated by caller)
+///  *-----------------------------------------------------------------------*/
+/// int xform_orthographic (unsigned char *image, int xsize, int ysize,
+/// 			unsigned char *imageout) {
+///   int i, j;
+///   int xi, yi, idx;
+///   double lat, lon;
+///   unsigned char this[3];
+/// 
+///   setmap (xsize-1, ysize-1);
+///   for (j=0;j<ysize;j++) {
+///     for (i=0;i<xsize;i++) {	
+///       
+///       lat =  ((((double)j/(double)ysize) *-180.0) + 90);
+///       lon =  ((((double)i/(double)xsize) * 360.0) - 180);
+///       
+///       orthographic_llh2xy (lat, lon, 0.0, &xi, &yi);
+///       
+///       // bounds checks
+///       if (xi < 0) continue;
+///       if (yi < 0) continue;
+///       if (xi > xsize-1) continue;
+///       if (yi > ysize-1) continue;
+/// 
+///       this[0] = image[3*xsize*j + 3*i    ];
+///       this[1] = image[3*xsize*j + 3*i + 1];
+///       this[2] = image[3*xsize*j + 3*i + 2];
+///       
+///       idx = 3*xsize*yi + 3*xi;
+///       imageout[idx  ] = this[0];
+///       imageout[idx+1] = this[1];
+///       imageout[idx+2] = this[2];
+/// 
+///       idx = 3*xsize*yi + 3*(xi+1);
+///       imageout[idx  ] = this[0];
+///       imageout[idx+1] = this[1];
+///       imageout[idx+2] = this[2];
+/// 
+///       idx = 3*xsize*(yi+1) + 3*xi;
+///       imageout[idx  ] = this[0];
+///       imageout[idx+1] = this[1];
+///       imageout[idx+2] = this[2];
+/// 
+///       idx = 3*xsize*(yi+1) + 3*(xi+1);
+///       imageout[idx  ] = this[0];
+///       imageout[idx+1] = this[1];
+///       imageout[idx+2] = this[2];
+/// 
+///     }
+///   }
+/// }
 
 
 /**----------------------------------------------------------------------
@@ -259,7 +321,7 @@ int xform_orthographic (unsigned char *image, int xsize, int ysize, unsigned cha
  *-----------------------------------------------------------------------*/
 int xform_orthographic1 (unsigned char *image, int xsize, int ysize, unsigned char *imageout) {
   int i, j;
-  int xi, yi, idxout, idxin;
+  int xi, yi, idxout, idxin, nightTime;
   double lat, lon, x, y, c, rho, phi, lam;
   double asp  = (double)ysize/(double)xsize;
   double d2r  = pi/180.0;
@@ -268,6 +330,16 @@ int xform_orthographic1 (unsigned char *image, int xsize, int ysize, unsigned ch
   double midy = ((double)ysize-1.0)/2.0;
   double lon0 = mapset.centerlon * d2r;
   double lat0 = mapset.centerlat * d2r;
+  double sunECF[3];   // ECF direction of sun
+  double earthECF[3]; // ECF location of current Earth point
+  double costheta, theta;       // angle between these
+
+  // Compute the XYZ ECF direction of the Sun.
+  if (mapset.night) {
+    llh2xyz (d2r*mapset.sunlat, d2r*mapset.sunlon, 0.0, sunECF);
+    norm (sunECF, sunECF); // normalize
+    // printf ("sunECF = %f, %f, %f\n", sunECF[0], sunECF[1], sunECF[2]);
+  }
 
   for (j=0;j<ysize;j++) {
     for (i=0;i<xsize;i++) {	
@@ -288,6 +360,29 @@ int xform_orthographic1 (unsigned char *image, int xsize, int ysize, unsigned ch
       if (lam >  pi) lam -= 2.0*pi;
       if (lam < -pi) lam += 2.0*pi;
 
+      nightTime  = 0; // Flag for night side of the Earth
+      if (mapset.night) {
+	//printf ("phi = %f, lam = %f\n", phi, lam);
+	llh2xyz (phi, lam, 0.0, earthECF);
+	norm (earthECF, earthECF); // normalize
+	//printf ("earthECF = %f, %f, %f\n", earthECF[0], earthECF[1], earthECF[2]);
+
+	// Find the angle between these vectors
+	costheta = sunECF[0] * earthECF[0] +
+	           sunECF[1] * earthECF[1] +
+	           sunECF[2] * earthECF[2];
+	//printf ("costheta = %f\n", costheta);
+	// handle out of range values. 
+	if (costheta >  1.0) costheta =  1.0;
+	if (costheta < -1.0) costheta = -1.0;
+
+	// angle between current point on Earth and the sun subpoint.
+	// 0 at noon, pi/2 at terminator, pi at midnight
+	theta = acos(costheta);
+	//printf ("theta = %f\n", theta);
+	if (theta > pi/2.0) nightTime  = 1;
+      }
+
       // printf ("lat, lon = %f, %f\n", (r2d*phi), (r2d*lam));
 
       // convert from lat/lon radians to x/y coords 
@@ -304,10 +399,86 @@ int xform_orthographic1 (unsigned char *image, int xsize, int ysize, unsigned ch
 
       idxin  = 3*mapset.maxx*yi + 3*xi;
       idxout = 3*xsize*j  + 3*i;
-      imageout[idxout    ] = image[idxin    ];
-      imageout[idxout + 1] = image[idxin + 1];
-      imageout[idxout + 2] = image[idxin + 2];
+      if (nightTime) {
+	// make night pixels dimmer
+	imageout[idxout    ] = image[idxin    ]/2;
+	imageout[idxout + 1] = image[idxin + 1]/2;
+	imageout[idxout + 2] = image[idxin + 2]/2;
+      } else {
+	imageout[idxout    ] = image[idxin    ];
+	imageout[idxout + 1] = image[idxin + 1];
+	imageout[idxout + 2] = image[idxin + 2];
+      }
+    }
+  }
+}
 
+
+/**----------------------------------------------------------------------
+ * @name       apply_terminator
+ *
+ * Add a day/night terminator for a given time
+ *
+ * @parameter
+ * @ input:    image -- pointer to input image
+ * @ output:   
+ * @           imageout -- pointer to output image (allocated by caller)
+ *-----------------------------------------------------------------------*/
+int apply_terminator (unsigned char *image, unsigned char *imageout) {
+  int i, j, idx;
+  double lat, lon;
+  double d2r  = pi/180.0;
+  double sunECF[3];   // ECF direction of sun
+  double earthECF[3]; // ECF location of current Earth point
+  double costheta, theta;       // angle between these
+
+  // Compute the XYZ ECF direction of the Sun.
+  llh2xyz (d2r*mapset.sunlat, d2r*mapset.sunlon, 0.0, sunECF);
+  norm (sunECF, sunECF); // normalize
+  // printf ("sunECF = %f, %f, %f\n", sunECF[0], sunECF[1], sunECF[2]);
+
+  for (j=0;j<mapset.maxy;j++) {
+    for (i=0;i<mapset.maxx;i++) {	
+
+      // assume image runs from -180 to 180 lon (X), 90 to -90 lat (Y)
+      lon = (double)i/(double)(mapset.maxx - 1);
+      lon = d2r * ((lon * 360) - 180);
+      lat = (double)j/(double)(mapset.maxy - 1);
+      lat = -1 * d2r * ((lat * 180) - 90);
+
+      // printf ("earthlatlon = %f, %f\n", lat, lon);
+      
+      llh2xyz (lat, lon, 0.0, earthECF);
+      norm (earthECF, earthECF); // normalize
+      //printf ("earthECF = %f, %f, %f\n", earthECF[0], earthECF[1], earthECF[2]);
+
+      // Find the angle between these vectors
+      costheta = sunECF[0] * earthECF[0] +
+                 sunECF[1] * earthECF[1] +
+                 sunECF[2] * earthECF[2];
+      
+      //printf ("costheta = %f\n", costheta);
+      // handle out of range values. 
+      if (costheta >  1.0) costheta =  1.0;
+      if (costheta < -1.0) costheta = -1.0;
+
+      // angle between current point on Earth and the sun subpoint.
+      // 0 at noon, pi/2 at terminator, pi at midnight
+      theta = acos(costheta);
+      //printf ("theta = %f\n", theta);
+
+      idx = 3*mapset.maxx*j + 3*i;
+
+      if (theta > pi/2.0) {  // nightTime  = 1;
+        // make night pixels dimmer
+        imageout[idx    ] = image[idx    ]/2;
+        imageout[idx + 1] = image[idx + 1]/2;
+        imageout[idx + 2] = image[idx + 2]/2;
+      } else {
+        imageout[idx    ] = image[idx    ];
+        imageout[idx + 1] = image[idx + 1];
+        imageout[idx + 2] = image[idx + 2];
+      }
     }
   }
 }
@@ -334,6 +505,35 @@ int llh2xyz (double lat, double lon, double height, double xyz[3]) {
   xyz[1] = r * sin(lon) * sin(colat);
   xyz[2] = r * cos(colat);
 }
+
+/**----------------------------------------------------------------------
+ * @name       xyz2llh
+ *
+ * Simple xyz to spherical coordinate conversion
+ *
+ * @parameter
+ * @ input:    xyz -- double array, km
+ * @ output:   lat -- radians -pi/2 to pi/2
+ * @           lon -- radians -pi to pi
+ * @           height -- km
+ *-----------------------------------------------------------------------*/
+int xyz2llh (double xyz[3], double *lat, double *lon, double *height) {
+
+  double phi, x, y, z, r;
+  x = xyz[0];
+  y = xyz[1];
+  z = xyz[2];
+
+  r     = sqrt(x*x + y*y + z*z);
+  *lon   = atan2(y, x); // -pi to pi
+  phi   = acos(z/r);   //   0 to pi (colatitude)
+
+  *lat   = -(phi - pi/2);
+
+  *height = r - (RE);
+
+}
+
 
 /**----------------------------------------------------------------------
  * @name       dot

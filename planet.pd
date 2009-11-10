@@ -1,4 +1,6 @@
-$VERSION = '0.05';
+BEGIN {
+$VERSION = '0.12'
+};
 
 pp_addpm({At => Top}, <<'EOD');
 
@@ -192,6 +194,42 @@ sub write {
 
 #--------------------------------------------------------------------------
 
+=head2 write_png
+
+=for ref
+
+Convert an image to a perl scalar containing a PNG.
+
+=for usage
+
+Arguments:
+
+  Input PDL::Planet object with an image in it.
+
+Returns:
+  A perl scalar containing a PNG image
+
+=for example
+
+  my $png = PDL::Planet->new->read('planet.jpg')->write_png;
+
+=cut
+
+sub write_png {
+
+  my $self   = shift;
+
+  # Code left in to test write_png_mem1.
+  #my $png = PDL::Planet::write_png_mem1 ($self->{IMG});
+  #return ${$png->get_dataref}; # $png is a byte PDL, return the data section
+
+  my $png = PDL::Planet::write_png_mem ($self->{IMG});
+  return $png;
+
+}
+
+#--------------------------------------------------------------------------
+
 =head2 resize
 
 =for ref
@@ -224,6 +262,46 @@ sub resize {
   $self->{IMG}  = $resize;
   $self->{SIZE} = [$xsize, $ysize];
   setmap (@{$self->{SIZE}});
+
+  return $self;
+
+}
+
+#--------------------------------------------------------------------------
+
+=head2 terminator
+
+=for ref
+
+Show the day/night terminator for a given time.
+
+=for usage
+
+Arguments:
+
+  Julian time
+
+Returns:
+  PDL::Planet object.
+
+=for example
+
+  my $pl = PDL::Planet->new->read('planet.jpg')->terminator(2453908)->write('planet.gif');
+
+=cut
+
+sub terminator {
+
+  my $self  = shift;
+  my $time  = shift;
+
+  my ($lat, $lon) = findsunpos($time);
+  setsunpos ($lat, $lon);
+  setmap (@{$self->{SIZE}});
+
+  my $with_terminator = zeroes(byte, 3, @{$self->{SIZE}});
+  PDL::Planet::apply_terminator ($self->{IMG}, $with_terminator);
+  $self->{IMG} = $with_terminator;
 
   return $self;
 
@@ -284,10 +362,15 @@ Perform a transformation on an image.  Currently supported transformations:
 Arguments:
 
   Options list:
-    TYPE   => 'Orthographic'
-    CENTER => [lat, lon]  # center of orthographic projection    
-    SIZE   => [maxx, maxy]       # Size in pixels of resultant projection (defaults to input size)
-    SHRINK => shrink_factor, 0-1 # Controls how much the Earth fills the window
+    TYPE    => 'Orthographic'
+    CENTER  => [lat, lon]  # center of orthographic projection    
+    SIZE    => [maxx, maxy]       # Size in pixels of resultant projection (defaults to input size)
+    SHRINK  => shrink_factor, 0-1 # Controls how much the Earth fills the window
+    SUNTIME => julian_time # Turns on drawing of the terminator. 
+                           # Computes the sun location at the input time.
+    SUNPOS  => [lat, lon]  # Turns on drawing of the terminator with the sun sub point at the
+                           # input location
+
 
 Returns:
   PDL::Planet object with transformation done.
@@ -308,8 +391,20 @@ sub transform {
 
     my $lat = defined($opt{CENTER}[0]) ? $opt{CENTER}[0] : 0;
     my $lon = defined($opt{CENTER}[1]) ? $opt{CENTER}[1] : 0;
-    setshrink ($opt{SHRINK}) if (exists($opt{SHRINK}));
     setcenter ($lat, $lon);
+
+    setshrink ($opt{SHRINK}) if (exists($opt{SHRINK}));
+
+    # Enable drawing of terminator by way of time or sun's subpoint position
+    if    (exists($opt{SUNTIME})) {
+      my ($lat, $lon) = findsunpos($opt{SUNTIME});
+      setsunpos ($lat, $lon);
+    } 
+    elsif (exists($opt{SUNPOS})) {
+      my ($lat, $lon) = @{$opt{SUNPOS}};
+      setsunpos ($lat, $lon);
+    }
+
     my ($x, $y) = (exists($opt{SIZE})) ? @{$opt{SIZE}} : @{$self->{SIZE}};
     $xform = zeroes(byte,3,$x,$y);
     PDL::Planet::xform_orthographic ($self->{IMG}, $xform);
@@ -393,7 +488,10 @@ Arguments:
   $image -- Small image to paste into current image (a PDL::Planet object)
   $x     -- PDL of X coordinates of large image to paste the smaller image to
   $y     -- PDL of Y coordinates of large image to paste the smaller image to
-
+  $maskColor -- Number from 0 to 255 (defaults to 255).  The color in the
+                smaller image which will be blended into the larger one.
+                Defaults to white.  For a small image with a black background, 
+                set to 0.
 Returns:
   PDL::Planet object with pasting done.
 
@@ -416,6 +514,8 @@ sub paste {
   my $image = shift; # image to paste
   my $x     = shift;
   my $y     = shift;
+  my $maskColor = shift; # unless specified, mask color is white.  Can also specify 0.
+  $maskColor = defined($maskColor) ? $maskColor : 255;
 
   my $xs = $image->{SIZE}[0];
   my $ys = $image->{SIZE}[1];
@@ -426,12 +526,13 @@ sub paste {
   # Heavy magic.  See the man page for 'range' and take several aspirin!
   # Basically, we get a series of slices from the main image which correspond to
   # the places where the smaller image will be pasted ($slices).
-  # Then we use a mask to find out where the white (255,255,255) background is
+  # Then we use a mask to find out where the white (255,255,255)
+  # (or $maskColor) background is
   # and blend this with the image slices.  Finally, we paste the blend of background
   # and small images into the big image in the correct places.
   my $glyph  = $image->{IMG}->mv(0,2);
   my $slices = $self->{IMG}->mv(0,2)->range(cat($xc, $yc)->mv(0,1),pdl($xs, $ys), 't')->mv(0,3);
-  my $mask   = ($glyph == 255);
+  my $mask   = ($glyph == $maskColor);
   my $blend  = ($mask * $slices) | ($glyph * !$mask);
   $self->{IMG}->mv(0,2)->range(cat($xc, $yc)->mv(0,1),pdl($xs, $ys), 't')->mv(0,3) .= $blend;
 
@@ -511,6 +612,46 @@ and outputs a PDL of 3 x width x height.  File type to write is
 determined by the extension: .gif .jpeg .bmp .png .pbm .pgm .ppm .tiff
 EOD
 
+pp_def	('write_png_mem1',
+	Pars => 'image(3,x,y);[o]outpng()',
+	GenericTypes => [B],
+	Code => 'int xsize = $SIZE(x);
+		 int ysize = $SIZE(y);
+                 char * png_ptr;
+                 size_t png_size;
+                 int success = 0;
+                 PDL_Long outdims[] = {0};
+                 pdl *p = $PDL(outpng);
+                 success = write_png_mem(&png_ptr, &png_size, xsize, ysize, $P(image));
+                 outdims[0] = png_size;
+                 PDL->setdims(p,outdims,1);
+                 p->datatype = PDL_B;
+                 PDL->allocdata (p);
+                 memcpy(p->data, (const void *)png_ptr, png_size);
+                 free(png_ptr);',
+	Doc  => <<'EOD');
+Given an input image PDL of RGB x width x height, return a perl scalar
+containing a PNG image.  This is left in for reference.  Use the XS-only
+version write_png_mem (defined below) instead.
+EOD
+
+# XS-only version of the above code.  This is more efficient because an output PDL
+# need not be created.
+pp_addxs (<<'EOC');
+SV *
+write_png_mem (SV *image)
+CODE:
+  pdl *image_pdl = PDL->SvPDLV(image);
+  int xsize = image_pdl->dims[1];
+  int ysize = image_pdl->dims[2];
+  char * png_ptr;
+  size_t png_size;
+  write_png_mem(&png_ptr, &png_size, xsize, ysize, image_pdl->data);
+  RETVAL = newSVpv(png_ptr,png_size);
+OUTPUT:
+  RETVAL
+EOC
+
 #-----------------------------------------------------------------------------------
 pp_def	('resize_image',
 	Pars => 'image(3,x,y); [o]oimage(3,ox,oy)',
@@ -557,7 +698,19 @@ pp_def	('orthographic_llh2xy',
 Transform lat/lon/height to X/Y coords.
 EOD
 
-#-----------------------------------------------------------------------------------
+### #-----------------------------------------------------------------------------------
+### 
+### pp_def	('sunpos',
+### 	Pars => 'tjulian(); [o]sunpos(3)',
+### 	GenericTypes => [D],
+### 	Code => 'sunpos_ ($P(tjulian), $P(sunpos));',
+### 	Doc  => <<'EOD');
+### Given a Julian time, compute the ECI position of the Sun relative to the Earth.
+### Input:  Julian Time
+### Output: XYZ ECI Sun position
+### EOD
+### 
+### #-----------------------------------------------------------------------------------
 
 pp_def	('setmap',
 	Pars => 'maxx(); maxy()',
@@ -565,6 +718,28 @@ pp_def	('setmap',
 	Code => 'setmap ($maxx(),$maxy());',
 	Doc  => <<'EOD');
 Set map image size
+EOD
+
+#-----------------------------------------------------------------------------------
+
+pp_def	('setsunpos',
+	Pars => 'lat(); lon();',
+	GenericTypes => [D],
+	Code => 'setsunpos ($lat(), $lon());',
+	Doc  => <<'EOD');
+Set the lat/lon of the Sun subpoint.
+Calling this routine enables the display of the terminator
+when generating an orthographic projection.
+EOD
+
+#-----------------------------------------------------------------------------------
+
+pp_def	('findsunpos',
+	Pars => 'tjulian(); [o]lat(); [o]lon();',
+	GenericTypes => [D],
+	Code => 'findsunpos ($tjulian(), $P(lat), $P(lon));',
+	Doc  => <<'EOD');
+Given an input Julian time, compute the sun's subpoint.
 EOD
 
 #-----------------------------------------------------------------------------------
@@ -597,6 +772,16 @@ pp_def	('xform_orthographic',
 	Code => 'xform_orthographic1 ($P(image), $SIZE(xo), $SIZE(yo), $P(imageout));',
 	Doc  => <<'EOD');
 Transforms an input PDL in rectangular coords to an orthographic projection.
+EOD
+
+#-----------------------------------------------------------------------------------
+
+pp_def	('apply_terminator',
+	Pars => 'image(3,x,y); [o]imageout(3,x,y);',
+	GenericTypes => [B],
+	Code => 'apply_terminator ($P(image), $P(imageout));',
+	Doc  => <<'EOD');
+Applys a terminator to a linear image.
 EOD
 
 pp_done();

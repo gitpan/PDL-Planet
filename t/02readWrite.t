@@ -1,34 +1,8 @@
-# Before `make install' is performed this script should be runnable with
-# `make test'. After `make install' it should work as `perl test.pl'
-
-######################### We start with some black magic to print on failure.
-
-# Change 1..1 below to 1..last_test_to_print .
-# (It may become useful if the test is moved to ./t subdirectory.)
+use Test::More tests => 12;
 
 use PDL;
 use PDL::Orbit;
-use Test;
-
-eval "use PDL::Planet;";
-unless ($@){
-  plan tests => 13;
-  print "ok 1\n";
-} else {
-  print "not ok 1\n";
-}
-
-sub testok ($$) {
-  my $bool = shift;
-  my $n    = shift;
-  if ($bool) {
-    print "ok $n\n";
-  } else {    print "not ok $n\n";
-  }
-}
-
-
-######################### End of black magic.
+use PDL::Planet;
 
 BEGIN { unlink glob ("testimg*.*") };
 
@@ -36,7 +10,7 @@ my $pl = PDL::Planet->new
                     ->read("./images/earth.jpg")
                     ->transform(TYPE => Orthographic, SIZE => [500,500], CENTER => [40,-105])
                     ->write("testimg2.jpg");
-testok -s "testimg2.jpg" > 0, 2;
+ok -s "testimg2.jpg", 'new/read/transform/write';
 
 my $starttime = 728784000;
 my $steptimes = (sequence(50)*180) + $starttime;
@@ -51,22 +25,34 @@ my $yok = pdl(qw[400 430 452 467 473 471 461 442 417 385 348 308 266 223 181 143
                  108 79 56 -1 -1 -1 -1 -1 -1 -1 -1 -1 222 264 304 343 378 407 431 
                  449 458 460 455 441 421 394 362 326 286 245 205 166 -1 -1]);
 
-testok (sum($x - $xok) == 0, 3);
-testok (sum($y - $yok) == 0, 4);
+ok ( (sum($x - $xok) == 0) && (sum($y - $yok) == 0), "lat/lon/height -> X/Y");
 
 my $glyph     = PDL::Planet->new->read("./images/satellite.gif")->write("testimg5.png");
-testok -s "testimg5.png" > 0, 5;
+ok -s "testimg5.png", "Read GIF glyph, write PNG glyph";
+
+my $png       = PDL::Planet->new->read("./images/satellite.gif")->write_png;
+my $file_png  = do { local( @ARGV, $/ ) = "testimg5.png"; <> } ; # slurp!
+ok ( ($png eq $file_png), "Read GIF glyph, write PNG in-memory glyph");
 
 $pl->paste($glyph, $x, $y)->rgb;
 
 my $n = 6;
-foreach my $type (qw(gif jpg bmp png pbm pgm ppm tif)) {
+foreach my $type (qw(gif jpg bmp png tif)) {
   $pl->write("./testimg$n.$type");
-  testok -s "testimg$n.$type", $n++;
+  ok -s "testimg$n.$type", "Writing $type";
+  $n++;
 }
 
+SKIP: {
+  my $checkfuncs = do { local( @ARGV, $/ ) = "./libimage/checkfuncs.h"; <> } ; # slurp!
+  skip "PNM support not enabled", 3 if ($checkfuncs !~ /\#define HAVE_LIBPNM/);
 
-
+  foreach my $type (qw(pbm pgm ppm)) {
+    $pl->write("./testimg$n.$type");
+    ok -s "testimg$n.$type", "Writing $type";
+    $n++;
+  }
+} 
 
 
 

@@ -7,7 +7,7 @@ use vars qw/$package/;
 
 # -- Add new subroutines here! --
 
-my @src = qw(util.c);
+my @src = qw(util.c spa.c);
 my @obj = @src;
 map {s/\.[fc]/\.o/;} @obj; # swap .f, .c for .o
 
@@ -27,7 +27,6 @@ $package = ["planet.pd",Planet,PDL::Planet];
 WriteMakefile(
 	      'NAME'  	     => 'PDL::Planet',
 	      'AUTHOR'       => 'Douglas Hunt (dhunt@ucar.edu)',
-	      'CCFLAGS'      => "-g",
 	      'PREREQ_PM'    => {PDL         => 2.4.1, 
 				 Image::Size => 0, 
 				 PDL::Orbit  => 0},
@@ -64,7 +63,10 @@ sub MY::postamble {
     $o =~ s/\.[cf]/\.o/;
     
     if ($s =~ /\.c$/) { # C code
-      $added .= "$o: $s\n\t$Config{'cc'} -c $cflags -o $o -I./libimage -g $s\n\n";
+      $added .= "$o: $s\n\t$Config{'cc'} -c $cflags -o $o -I./libimage -O3 $s\n\n";
+    }
+    elsif ($s =~ /\.f$/) { # FORTRAN
+      $added .= "$o: $s\n\tg77 -c -O3 -o $o $s\n\n";
     }
     
   }

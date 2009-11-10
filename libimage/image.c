@@ -269,6 +269,22 @@ write_image(const char *filename, int width, int height, unsigned char *rgb)
     return(success);
 }
 
+
+/* Write an image to memory in PNG format--returned as a pointer and a size from this routine */
+/* D. Hunt 9/9/09 at 8:54am */
+int
+write_png_mem(char **img_ptr, size_t *img_size, int width, int height, unsigned char *rgb)
+{
+    FILE *out;
+    int success = 0;
+    out = open_memstream(img_ptr, img_size);
+    if (out == NULL) return (0);
+    success = write_png(out, width, height, rgb, alpha);
+    fclose(out);
+    return(success);
+}
+
+
 int
 delete_image(unsigned char **rgb)
 {

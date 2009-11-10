@@ -1,13 +1,16 @@
-# http://module-build.sourceforge.net/META-spec.html
-#XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
-name:         PDL-Planet
-version:      0.05
-version_from: planet.pd
-installdirs:  site
-requires:
+--- #YAML:1.0
+name:                PDL-Planet
+version:             0.12
+abstract:            ~
+license:             ~
+author:              
+    - Douglas Hunt (dhunt@ucar.edu)
+generated_by:        ExtUtils::MakeMaker version 6.42
+distribution_type:   module
+requires:     
     Image::Size:                   0
     PDL:                           
     PDL::Orbit:                    0
-
-distribution_type: module
-generated_by: ExtUtils::MakeMaker version 6.17
+meta-spec:
+    url:     http://module-build.sourceforge.net/META-spec-v1.3.html
+    version: 1.3

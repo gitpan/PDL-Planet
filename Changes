@@ -7,3 +7,31 @@ Revision history for Perl extension PDL::Planet
         Must export CPPFLAGS='-fPIC' before building.
 0.05  10/18/2005
         - Fixed small bug in AMD 64 detection for multi-threaded perl.
+
+0.06  4/06/2006
+        - Added new 1000x2000 earth image derived from a GMT altimetry plot
+        - Added a maskColor option to the 'paste' subroutine so that
+          a glyph with a black backround can be blended.
+	- Added -O3 optimization to util.c.  This helps a little
+          with aform_orthographic times.
+
+0.07  5/16/2006
+        - Added support for drawing the Earth's terminator:
+          - the SUNPOS option to 'transform' takes the sun's
+            lat/lon and shows the terminator
+          - the SUNTIME option to 'transform' takes the julian time
+            and uses the 'spa' package from NREL (included) to compute the sun's lat/lon
+            then plotting the terminator
+0.08  6/22/2006
+         - Added a routine to display a day/night terminator on a linear plot.
+0.09  11/16/2006
+         - Added monthly earth images
+0.10  3/21/2007
+         - Added 3 more earth images - Maggie
+0.11  1/14/2009
+         - Removed -lg2c from LIBS in Makefile.PL.  This allows package to work for CentOS 5.2.
+           With the change it still seems to work with CentOS 4, both 32 and 64 bit platforms.
+0.12  9/9/2009
+         - Added write_png function which creates an in-memory PNG in a perl scalar.  Handy
+           for web applications.  Created two low-level functions write_png_mem and write_png_mem1
+           which demonstrate two different ways of doing this.
